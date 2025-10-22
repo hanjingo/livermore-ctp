@@ -39,3 +39,33 @@
 
 # debug information files
 *.dwo
+
+# vscode
+.vscode
+
+# vs
+.vs
+*.user
+CMakeSettings.json
+
+# vim
+*.swo
+*.swp
+
+# macos
+.DS_Store
+
+# Depend
+deps/*
+!deps/CMakeLists.txt
+res/*
+!res/config.ini
+!res/license.lic
+!res/instruments.txt
+!res/livermore-ctp_en_US.properties
+!res/livermore-ctp_zh_CN.properties
+
+# Directory
+build
+bin
+out
