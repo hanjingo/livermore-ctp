@@ -279,8 +279,8 @@ void copy_from(market_data *dst, const market_data *src)
            src->instrument_id,
            sizeof(market_data::instrument_id));
     memcpy(dst->exchange_id,
-           src->instrument_id,
-           sizeof(market_data::instrument_id));
+           src->exchange_id,
+           sizeof(market_data::exchange_id));
     dst->last_price           = src->last_price;
     dst->pre_close_price      = src->pre_close_price;
     dst->open_price           = src->open_price;
@@ -322,6 +322,54 @@ void copy_from(market_data *dst, const market_data *src)
            src->action_time,
            sizeof(market_data::action_time)),
         dst->action_ms = src->action_ms;
+}
+
+bool convert(market_data *dst, const CThostFtdcDepthMarketDataField *src)
+{
+    memcpy(dst->trading_day, src->TradingDay, sizeof(market_data::trading_day));
+    memcpy(dst->instrument_id,
+           src->InstrumentID,
+           sizeof(market_data::instrument_id));
+    memcpy(dst->exchange_id, src->ExchangeID, sizeof(market_data::exchange_id));
+    dst->last_price           = src->LastPrice;
+    dst->pre_close_price      = src->PreClosePrice;
+    dst->open_price           = src->OpenPrice;
+    dst->pre_settlement_price = src->PreSettlementPrice;
+    dst->highest_price        = src->HighestPrice;
+    dst->lowest_price         = src->LowestPrice;
+    dst->close_price          = src->ClosePrice;
+    dst->settlement_price     = src->SettlementPrice;
+    dst->upper_limit_price    = src->UpperLimitPrice;
+    dst->lower_limit_price    = src->LowerLimitPrice;
+    dst->average_price        = src->AveragePrice;
+#ifdef USE_DEEP_DATA
+    dst->bid_price1  = src->BidPrice1;
+    dst->ask_price1  = src->AskPrice1;
+    dst->bid_price2  = src->BidPrice2;
+    dst->ask_price2  = src->AskPrice2;
+    dst->bid_price3  = src->BidPrice3;
+    dst->ask_price3  = src->AskPrice3;
+    dst->bid_price4  = src->BidPrice4;
+    dst->ask_price4  = src->AskPrice4;
+    dst->bid_price5  = src->BidPrice5;
+    dst->ask_price5  = src->AskPrice5;
+    dst->bid_volume1 = src->BidVolume1;
+    dst->ask_volume1 = src->AskVolume1;
+    dst->bid_volume2 = src->BidVolume2;
+    dst->ask_volume2 = src->AskVolume2;
+    dst->bid_volume3 = src->BidVolume3;
+    dst->ask_volume3 = src->AskVolume3;
+    dst->bid_volume4 = src->BidVolume4;
+    dst->ask_volume4 = src->AskVolume4;
+    dst->bid_volume5 = src->BidVolume5;
+    dst->ask_volume5 = src->AskVolume5;
+#endif
+    dst->volume            = src->Volume;
+    dst->pre_open_interest = src->PreOpenInterest;
+    dst->open_interest     = src->OpenInterest;
+    dst->turnover          = src->Turnover;
+    memcpy(dst->action_time, src->ActionDay, sizeof(market_data::action_time));
+    return false;
 }
 
 } // namespace util

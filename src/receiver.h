@@ -5,6 +5,9 @@
 #include <atomic>
 #include <vector>
 #include <hj/sync/safe_map.hpp>
+#include <hj/sync/thread_pool.hpp>
+#include <hj/sync/channel.hpp>
+#include <hj/sync/object_pool.hpp>
 
 #include <ThostFtdcMdApi.h>
 #include <ThostFtdcUserApiStruct.h>
@@ -35,7 +38,12 @@ class receiver : public CThostFtdcMdSpi
     };
 
   public:
-    receiver() { reset(); }
+    receiver(size_t md_reserved, hj::thread_pool &threads = hj::thread_pool())
+        : _threads(threads)
+        , _chan(md_reserved)
+    {
+        reset();
+    }
     ~receiver() {}
 
   public:
@@ -102,10 +110,18 @@ class receiver : public CThostFtdcMdSpi
     void OnRtnForQuoteRsp(CThostFtdcForQuoteRspField *pForQuoteRsp) override;
 
   private:
-    CThostFtdcMdApi                         *_mdapi;
-    std::atomic<receiver::stat>              _stat;
-    hj::safe_map<std::string, market_data *> _md_topics;
-    std::atomic<int>                         _req_id;
+    err_t _write(market_data *md);
+    err_t _parse_instruments_file(std::vector<std::string> &instruments,
+                                  const std::string        &file_path);
+
+  private:
+    CThostFtdcMdApi                *_mdapi;
+    std::atomic<receiver::stat>     _stat;
+    hj::safe_map<std::string, bool> _md_topics;
+    std::atomic<int>                _req_id;
+    hj::thread_pool                &_threads;
+    hj::object_pool<market_data>    _pool;
+    hj::channel<market_data *>      _chan;
 };
 
 } // namespace livermore::ctp

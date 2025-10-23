@@ -6,6 +6,7 @@
     "boost-program-options",
     "boost-property-tree",
     "breakpad",
+    "concurrentqueue",
     "fmt",
     "gtest",
     "icu",
@@ -42,6 +43,10 @@
     {
       "name": "breakpad",
       "version": "2024-02-16"
+    },
+    {
+      "name": "concurrentqueue",
+      "version": "1.0.4"
     },
     {
       "name": "fmt",

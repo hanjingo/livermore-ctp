@@ -6,6 +6,9 @@
 #include <hj/util/defer.hpp>
 #include <hj/encoding/hex.hpp>
 
+#include "config.h"
+#include "util.h"
+
 namespace livermore::ctp
 {
 
@@ -69,16 +72,20 @@ err_t receiver::init(const char *psz_flow_path,
 err_t receiver::connect(const std::vector<std::string> &addrs,
                         unsigned int                    timeout_ms)
 {
+    LOG_DEBUG("receiver::connect called with timeout_ms={}", timeout_ms);
     if(status_change(stat::connecting) != stat::connecting)
         return error::CTP_STATUS_ERROR;
 
     if(addrs.empty())
         return error::CTP_ADDR_EMPTY;
 
+    LOG_DEBUG("Start to connect to ctp md front...");
     for(auto addr : addrs)
         _mdapi->RegisterFront(const_cast<char *>(addr.c_str()));
 
+    LOG_DEBUG("registered all front addr, now init md api...");
     _mdapi->Init();
+    LOG_DEBUG("ctp md api init called.");
     if(timeout_ms < 0)
     {
         _mdapi->Join();
@@ -94,6 +101,7 @@ err_t receiver::connect(const std::vector<std::string> &addrs,
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
+    LOG_DEBUG("connect to ctp md front timeout");
     return error::CTP_CONNECT_TIMEOUT;
 }
 
@@ -135,29 +143,15 @@ err_t receiver::subscribe_market_data(
         if(_md_topics.find(id) != std::nullopt)
             continue;
 
-        auto md = new market_data();
-        _md_topics.emplace(std::move(id), std::move(md));
+        auto state = true;
+        _md_topics.emplace(std::move(id), std::move(state));
         topics[row++] = new char[INSTRUMENT_LEN];
         memcpy(topics[row], id.c_str(), INSTRUMENT_LEN);
     }
+    DEFER(for(int i = 0; i < row; ++i) { delete topics[i]; });
 
     int ret = _mdapi->SubscribeMarketData(topics, row);
-    for(int i = 0; i < row; ++i)
-        delete topics[i];
-
-    switch(ret)
-    {
-        case 0:
-            return OK;
-        case -1:
-            return error::CTP_ALREADY_DISCONNECTED;
-        case -2:
-            return error::CTP_TOO_MUCH_UNHANDLED_REQUEST;
-        case -3:
-            return error::CTP_TOO_MUCH_REQUEST;
-        default:
-            return error::CTP_FAIL;
-    }
+    return ret == 0 ? OK : hj::make_err(ret, "ctp");
 }
 
 err_t receiver::unsubscribe_market_data(
@@ -170,34 +164,52 @@ err_t receiver::unsubscribe_market_data(
         if(_md_topics.find(id) == std::nullopt)
             continue;
 
-        _md_topics.erase(std::move(id));
+        auto state = false;
+        _md_topics.emplace(std::move(id), std::move(state));
         topics[row++] = new char[INSTRUMENT_LEN];
         memcpy(topics[row], id.c_str(), INSTRUMENT_LEN);
     }
+    DEFER(for(int i = 0; i < row; ++i) { delete topics[i]; });
 
     int ret = _mdapi->UnSubscribeMarketData(topics, row);
-    switch(ret)
-    {
-        case 0:
-            return OK;
-        case -1:
-            return error::CTP_ALREADY_DISCONNECTED;
-        case -2:
-            return error::CTP_TOO_MUCH_UNHANDLED_REQUEST;
-        case -3:
-            return error::CTP_TOO_MUCH_REQUEST;
-        default:
-            return error::CTP_FAIL;
-    }
+    return ret == 0 ? OK : hj::make_err(ret, "ctp");
 }
 
 err_t receiver::wait()
 {
     // run thread, wait msg
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    while(status() != stat::disconnected)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
     return OK;
 }
 
+err_t receiver::_write(market_data *md)
+{
+    if(!md)
+        return error::CTP_NULL;
+
+    _chan.enqueue(md);
+    _threads.enqueue([this]() {
+        market_data *md = nullptr;
+        while(_chan.try_dequeue(md))
+        {
+            // process market data
+            // ...
+
+            // release market data back to pool
+            _pool.release(md);
+        }
+    });
+    return OK;
+}
+
+err_t receiver::_parse_instruments_file(std::vector<std::string> &instruments,
+                                        const std::string        &file_path)
+{
+    return OK;
+}
 
 ///////////////////////////// callback function ///////////////////////////////////////
 void receiver::OnFrontConnected()
@@ -207,7 +219,6 @@ void receiver::OnFrontConnected()
         LOG_ERROR("ctp connected stat change fail");
         return;
     }
-
     LOG_INFO("ctp connected");
 }
 
@@ -245,6 +256,24 @@ void receiver::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin,
     }
 
     LOG_INFO("login success");
+
+    // subscribe topics again
+    std::vector<std::string> topics;
+    auto                     instruments_file =
+        config::instance().get<std::string>("ctp.instruments_file");
+    auto err = _parse_instruments_file(topics, instruments_file);
+    if(err)
+    {
+        LOG_WARN("failed to parse instruments file: {} skip it",
+                 instruments_file);
+        return;
+    }
+    err = subscribe_market_data(topics);
+    if(err)
+    {
+        LOG_ERROR("subscribe market data fail after login");
+        return;
+    }
 }
 
 void receiver::OnRspUserLogout(CThostFtdcUserLogoutField *pUserLogout,
@@ -284,6 +313,10 @@ void receiver::OnRtnDepthMarketData(
     CThostFtdcDepthMarketDataField *pDepthMarketData)
 {
     LOG_DEBUG("OnRtnDepthMarketData");
+
+    market_data *md = _pool.acquire();
+    util::convert(md, pDepthMarketData);
+    _write(md);
 }
 
 void receiver::OnRspSubForQuoteRsp(

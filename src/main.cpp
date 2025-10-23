@@ -101,6 +101,57 @@ int main(int argc, char *argv[])
     }
     LOG_INFO("Ctp flow market data path: {} is ready.", md_path);
 
-    system("pause");
+    // create thread pool
+    hj::thread_pool threads(conf.get<int>("async.pool_size", 1));
+
+    // create receiver
+    receiver recver(conf.get<int>("async.md_reserved", 1024), threads);
+
+    // init receiver
+    err =
+        recver.init(conf.get<std::string>("ctp.flow_market_data_path").c_str(),
+                    conf.get<bool>("ctp.use_udp"),
+                    conf.get<bool>("ctp.use_multicast"));
+    if(err != OK)
+    {
+        LOG_ERROR("Fail to init receiver with err: {}", err.message());
+        return -1;
+    }
+    LOG_INFO("Receiver init successfully.");
+
+    // conn receiver
+    std::vector<std::string> addrs;
+    if(!conf.get<std::string>("ctp.addr").empty())
+        addrs.push_back(conf.get<std::string>("ctp.addr"));
+    if(!conf.get<std::string>("ctp.addr_alternate1").empty())
+        addrs.push_back(conf.get<std::string>("ctp.addr_alternate1"));
+    if(!conf.get<std::string>("ctp.addr_alternate2").empty())
+        addrs.push_back(conf.get<std::string>("ctp.addr_alternate2"));
+    err = recver.connect(addrs, conf.get<int>("ctp.connect_timeout_ms"));
+    if(err != OK)
+    {
+        LOG_ERROR("Fail to connect receiver with err: {}", err.message());
+        return -1;
+    }
+    LOG_INFO("Receiver connect successfully.");
+
+    // login receiver
+    err = recver.login(
+        config::instance().get<int>("ctp.login_retry_times"),
+        config::instance().get<int>("ctp.login_retry_interval_ms"));
+    if(err != OK)
+    {
+        LOG_ERROR("Fail to login receiver with err: {}", err.message());
+        return -1;
+    }
+
+    // receiver run
+    err = recver.wait();
+    if(err != OK)
+    {
+        LOG_ERROR("Fail to run receiver with err: {}", err.message());
+        return -1;
+    }
+
     return 0;
 }

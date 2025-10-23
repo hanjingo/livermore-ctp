@@ -215,14 +215,15 @@ endif()
 file(GLOB PROPERTY_FILES 
     "${CMAKE_CURRENT_SOURCE_DIR}/res/*.properties" 
     "${CMAKE_CURRENT_SOURCE_DIR}/res/*.lic"
-    "${CMAKE_CURRENT_SOURCE_DIR}/res/*.ini")
+    "${CMAKE_CURRENT_SOURCE_DIR}/res/config.ini"
+    "${CMAKE_CURRENT_SOURCE_DIR}/res/instruments.txt")
 add_custom_target(${PACKAGE_NAME}_copy_properties ALL
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${PROPERTY_FILES}
         $<TARGET_FILE_DIR:${PROJECT_NAME}>
     DEPENDS ${PROPERTY_FILES}
-    COMMENT "Copying .properties .lic .ini files to output dir"
+    COMMENT "Copying .properties .lic .ini .txt files to output dir"
 )
 
 add_dependencies(${PROJECT_NAME} ${PACKAGE_NAME}_copy_properties)
