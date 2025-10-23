@@ -1,4 +1,4 @@
-#include "receiver.h"
+#include "quote.h"
 
 #include <string.h>
 #include <optional>
@@ -12,9 +12,9 @@
 namespace livermore::ctp
 {
 
-receiver::stat receiver::status_change(const stat new_stat)
+quote::stat quote::status_change(const stat new_stat)
 {
-    receiver::stat old_stat = _stat.load();
+    quote::stat old_stat = _stat.load();
     switch(new_stat)
     {
         case stat::disconnected: {
@@ -55,9 +55,9 @@ receiver::stat receiver::status_change(const stat new_stat)
                                                            : old_stat;
 }
 
-err_t receiver::init(const char *psz_flow_path,
-                     const bool  is_using_udp,
-                     const bool  is_multicast)
+err_t quote::init(const char *psz_flow_path,
+                  const bool  is_using_udp,
+                  const bool  is_multicast)
 {
     _mdapi = CThostFtdcMdApi::CreateFtdcMdApi(psz_flow_path,
                                               is_using_udp,
@@ -69,10 +69,10 @@ err_t receiver::init(const char *psz_flow_path,
     return OK;
 }
 
-err_t receiver::connect(const std::vector<std::string> &addrs,
-                        unsigned int                    timeout_ms)
+err_t quote::connect(const std::vector<std::string> &addrs,
+                     unsigned int                    timeout_ms)
 {
-    LOG_DEBUG("receiver::connect called with timeout_ms={}", timeout_ms);
+    LOG_DEBUG("quote::connect called with timeout_ms={}", timeout_ms);
     if(status_change(stat::connecting) != stat::connecting)
         return error::CTP_STATUS_ERROR;
 
@@ -105,7 +105,7 @@ err_t receiver::connect(const std::vector<std::string> &addrs,
     return error::CTP_CONNECT_TIMEOUT;
 }
 
-err_t receiver::login(unsigned int retry_times, unsigned int retry_interval_ms)
+err_t quote::login(unsigned int retry_times, unsigned int retry_interval_ms)
 {
     if(retry_times < 1)
         return error::CTP_LOGIN_TIMEOUT;
@@ -125,7 +125,7 @@ err_t receiver::login(unsigned int retry_times, unsigned int retry_interval_ms)
     return OK;
 }
 
-err_t receiver::logout()
+err_t quote::logout()
 {
     if(status_change(stat::logging_out) != stat::logging_out)
         return error::CTP_STATUS_ERROR;
@@ -133,8 +133,7 @@ err_t receiver::logout()
     return OK;
 }
 
-err_t receiver::subscribe_market_data(
-    const std::vector<std::string> &instruments)
+err_t quote::subscribe_market_data(const std::vector<std::string> &instruments)
 {
     char *topics[INSTRUMENT_LEN];
     int   row = 0;
@@ -154,7 +153,7 @@ err_t receiver::subscribe_market_data(
     return ret == 0 ? OK : hj::make_err(ret, "ctp");
 }
 
-err_t receiver::unsubscribe_market_data(
+err_t quote::unsubscribe_market_data(
     const std::vector<std::string> &instruments)
 {
     char *topics[INSTRUMENT_LEN];
@@ -175,7 +174,7 @@ err_t receiver::unsubscribe_market_data(
     return ret == 0 ? OK : hj::make_err(ret, "ctp");
 }
 
-err_t receiver::wait()
+err_t quote::wait()
 {
     // run thread, wait msg
     while(status() != stat::disconnected)
@@ -185,7 +184,7 @@ err_t receiver::wait()
     return OK;
 }
 
-err_t receiver::_write(market_data *md)
+err_t quote::_write(market_data *md)
 {
     if(!md)
         return error::CTP_NULL;
@@ -205,14 +204,14 @@ err_t receiver::_write(market_data *md)
     return OK;
 }
 
-err_t receiver::_parse_instruments_file(std::vector<std::string> &instruments,
-                                        const std::string        &file_path)
+err_t quote::_parse_instruments_file(std::vector<std::string> &instruments,
+                                     const std::string        &file_path)
 {
     return OK;
 }
 
 ///////////////////////////// callback function ///////////////////////////////////////
-void receiver::OnFrontConnected()
+void quote::OnFrontConnected()
 {
     if(status_change(stat::connected) != stat::connected)
     {
@@ -222,7 +221,7 @@ void receiver::OnFrontConnected()
     LOG_INFO("ctp connected");
 }
 
-void receiver::OnFrontDisconnected(int nReason)
+void quote::OnFrontDisconnected(int nReason)
 {
     if(status_change(stat::disconnected) != stat::disconnected)
     {
@@ -233,15 +232,15 @@ void receiver::OnFrontDisconnected(int nReason)
     LOG_INFO("ctp disconnected with nReason={}", hj::hex::encode(nReason));
 }
 
-void receiver::OnHeartBeatWarning(int nTimeLapse)
+void quote::OnHeartBeatWarning(int nTimeLapse)
 {
     LOG_WARN("heartbeat timeout with nTimeLapse={}", nTimeLapse);
 }
 
-void receiver::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin,
-                              CThostFtdcRspInfoField      *pRspInfo,
-                              int                          nRequestID,
-                              bool                         bIsLast)
+void quote::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin,
+                           CThostFtdcRspInfoField      *pRspInfo,
+                           int                          nRequestID,
+                           bool                         bIsLast)
 {
     if(pRspInfo->ErrorID != 0)
     {
@@ -276,22 +275,22 @@ void receiver::OnRspUserLogin(CThostFtdcRspUserLoginField *pRspUserLogin,
     }
 }
 
-void receiver::OnRspUserLogout(CThostFtdcUserLogoutField *pUserLogout,
-                               CThostFtdcRspInfoField    *pRspInfo,
-                               int                        nRequestID,
-                               bool                       bIsLast)
+void quote::OnRspUserLogout(CThostFtdcUserLogoutField *pUserLogout,
+                            CThostFtdcRspInfoField    *pRspInfo,
+                            int                        nRequestID,
+                            bool                       bIsLast)
 {
     LOG_DEBUG("OnRspUserLogout");
 }
 
-void receiver::OnRspError(CThostFtdcRspInfoField *pRspInfo,
-                          int                     nRequestID,
-                          bool                    bIsLast)
+void quote::OnRspError(CThostFtdcRspInfoField *pRspInfo,
+                       int                     nRequestID,
+                       bool                    bIsLast)
 {
     LOG_DEBUG("OnRspError");
 }
 
-void receiver::OnRspSubMarketData(
+void quote::OnRspSubMarketData(
     CThostFtdcSpecificInstrumentField *pSpecificInstrument,
     CThostFtdcRspInfoField            *pRspInfo,
     int                                nRequestID,
@@ -300,7 +299,7 @@ void receiver::OnRspSubMarketData(
     LOG_DEBUG("OnRspSubMarketData");
 }
 
-void receiver::OnRspUnSubMarketData(
+void quote::OnRspUnSubMarketData(
     CThostFtdcSpecificInstrumentField *pSpecificInstrument,
     CThostFtdcRspInfoField            *pRspInfo,
     int                                nRequestID,
@@ -309,7 +308,7 @@ void receiver::OnRspUnSubMarketData(
     LOG_DEBUG("OnRspUnSubMarketData");
 }
 
-void receiver::OnRtnDepthMarketData(
+void quote::OnRtnDepthMarketData(
     CThostFtdcDepthMarketDataField *pDepthMarketData)
 {
     LOG_DEBUG("OnRtnDepthMarketData");
@@ -319,7 +318,7 @@ void receiver::OnRtnDepthMarketData(
     _write(md);
 }
 
-void receiver::OnRspSubForQuoteRsp(
+void quote::OnRspSubForQuoteRsp(
     CThostFtdcSpecificInstrumentField *pSpecificInstrument,
     CThostFtdcRspInfoField            *pRspInfo,
     int                                nRequestID,
@@ -328,7 +327,7 @@ void receiver::OnRspSubForQuoteRsp(
     LOG_DEBUG("OnRspSubForQuoteRsp");
 }
 
-void receiver::OnRtnForQuoteRsp(CThostFtdcForQuoteRspField *pForQuoteRsp)
+void quote::OnRtnForQuoteRsp(CThostFtdcForQuoteRspField *pForQuoteRsp)
 {
     LOG_DEBUG("OnRtnForQuoteRsp");
 }

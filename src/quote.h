@@ -1,5 +1,5 @@
-#ifndef RECEIVER_H
-#define RECEIVER_H
+#ifndef QUOTE_H
+#define QUOTE_H
 
 #include <thread>
 #include <atomic>
@@ -24,7 +24,7 @@
 namespace livermore::ctp
 {
 
-class receiver : public CThostFtdcMdSpi
+class quote : public CThostFtdcMdSpi
 {
   public:
     enum class stat : uint8_t
@@ -38,19 +38,19 @@ class receiver : public CThostFtdcMdSpi
     };
 
   public:
-    receiver(size_t md_reserved, hj::thread_pool &threads = hj::thread_pool())
+    quote(size_t md_reserved, hj::thread_pool &threads = hj::thread_pool())
         : _threads(threads)
         , _chan(md_reserved)
     {
         reset();
     }
-    ~receiver() {}
+    ~quote() {}
 
   public:
-    inline stat    status() { return _stat.load(); }
-    receiver::stat status_change(const receiver::stat new_stat);
-    inline int     req_id() { return _req_id.load(); }
-    inline int     id_inc()
+    inline stat status() { return _stat.load(); }
+    quote::stat status_change(const quote::stat new_stat);
+    inline int  req_id() { return _req_id.load(); }
+    inline int  id_inc()
     {
         int old = _req_id.load();
         return _req_id.compare_exchange_weak(old, old + 1) ? old : old + 1;
@@ -116,7 +116,7 @@ class receiver : public CThostFtdcMdSpi
 
   private:
     CThostFtdcMdApi                *_mdapi;
-    std::atomic<receiver::stat>     _stat;
+    std::atomic<quote::stat>        _stat;
     hj::safe_map<std::string, bool> _md_topics;
     std::atomic<int>                _req_id;
     hj::thread_pool                &_threads;

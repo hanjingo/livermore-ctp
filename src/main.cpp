@@ -16,7 +16,7 @@
 
 #include "error.h"
 #include "config.h"
-#include "receiver.h"
+#include "quote.h"
 #include "trader.h"
 
 using namespace livermore::ctp;
@@ -104,22 +104,22 @@ int main(int argc, char *argv[])
     // create thread pool
     hj::thread_pool threads(conf.get<int>("async.pool_size", 1));
 
-    // create receiver
-    receiver recver(conf.get<int>("async.md_reserved", 1024), threads);
+    // create quote
+    quote recver(conf.get<int>("async.md_reserved", 1024), threads);
 
-    // init receiver
+    // init quote
     err =
         recver.init(conf.get<std::string>("ctp.flow_market_data_path").c_str(),
                     conf.get<bool>("ctp.use_udp"),
                     conf.get<bool>("ctp.use_multicast"));
     if(err != OK)
     {
-        LOG_ERROR("Fail to init receiver with err: {}", err.message());
+        LOG_ERROR("Fail to init quote with err: {}", err.message());
         return -1;
     }
-    LOG_INFO("Receiver init successfully.");
+    LOG_INFO("quote init successfully.");
 
-    // conn receiver
+    // conn quote
     std::vector<std::string> addrs;
     if(!conf.get<std::string>("ctp.addr").empty())
         addrs.push_back(conf.get<std::string>("ctp.addr"));
@@ -130,26 +130,26 @@ int main(int argc, char *argv[])
     err = recver.connect(addrs, conf.get<int>("ctp.connect_timeout_ms"));
     if(err != OK)
     {
-        LOG_ERROR("Fail to connect receiver with err: {}", err.message());
+        LOG_ERROR("Fail to connect quote with err: {}", err.message());
         return -1;
     }
-    LOG_INFO("Receiver connect successfully.");
+    LOG_INFO("quote connect successfully.");
 
-    // login receiver
+    // login quote
     err = recver.login(
         config::instance().get<int>("ctp.login_retry_times"),
         config::instance().get<int>("ctp.login_retry_interval_ms"));
     if(err != OK)
     {
-        LOG_ERROR("Fail to login receiver with err: {}", err.message());
+        LOG_ERROR("Fail to login quote with err: {}", err.message());
         return -1;
     }
 
-    // receiver run
+    // quote run
     err = recver.wait();
     if(err != OK)
     {
-        LOG_ERROR("Fail to run receiver with err: {}", err.message());
+        LOG_ERROR("Fail to run quote with err: {}", err.message());
         return -1;
     }
 
