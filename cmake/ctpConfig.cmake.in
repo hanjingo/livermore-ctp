@@ -1,0 +1,73 @@
+@PACKAGE_INIT@
+
+# CTP - China Trading Platform API CMake Configuration File
+# This file sets up the CTP targets for use with find_package
+
+include(CMakeFindDependencyMacro)
+
+# Set CTP related variables
+set(CTP_VERSION "@PROJECT_VERSION@")
+
+# Platform and architecture detection
+if(WIN32)
+    set(CTP_PLATFORM "winApi")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(CTP_ARCH "64")
+    else()
+        set(CTP_ARCH "32")
+    endif()
+elseif(UNIX)
+    set(CTP_PLATFORM "linux")
+    set(CTP_ARCH "64")
+endif()
+
+# Check required components
+set(CTP_REQUIRED_COMPONENTS trader md)
+set(CTP_AVAILABLE_COMPONENTS trader md)
+
+# Handle COMPONENTS parameter
+if(ctp_FIND_COMPONENTS)
+    foreach(component ${ctp_FIND_COMPONENTS})
+        if(NOT component IN_LIST CTP_AVAILABLE_COMPONENTS)
+            set(ctp_FOUND FALSE)
+            set(ctp_NOT_FOUND_MESSAGE "Unknown component: ${component}")
+            return()
+        endif()
+    endforeach()
+    set(CTP_COMPONENTS ${ctp_FIND_COMPONENTS})
+else()
+    set(CTP_COMPONENTS ${CTP_AVAILABLE_COMPONENTS})
+endif()
+
+# Include target definitions
+include("${CMAKE_CURRENT_LIST_DIR}/ctpTargets.cmake")
+
+# Check if targets are available
+foreach(component ${CTP_COMPONENTS})
+    if(NOT TARGET ctp::ctp_${component})
+        set(ctp_FOUND FALSE)
+        set(ctp_NOT_FOUND_MESSAGE "Component ${component} not found")
+        return()
+    endif()
+endforeach()
+
+# Set interface target aliases
+if(NOT TARGET ctp::ctp)
+    add_library(ctp::ctp INTERFACE IMPORTED)
+    set_target_properties(ctp::ctp PROPERTIES
+        INTERFACE_LINK_LIBRARIES "ctp::ctp_trader;ctp::ctp_md"
+    )
+endif()
+
+# Set discovery status
+set(ctp_FOUND TRUE)
+
+# Provide legacy variables (for backward compatibility)
+get_target_property(CTP_INCLUDE_DIRS ctp::ctp INTERFACE_INCLUDE_DIRECTORIES)
+get_target_property(CTP_LIBRARIES ctp::ctp INTERFACE_LINK_LIBRARIES)
+
+# Status message
+if(NOT ctp_FIND_QUIETLY)
+    message(STATUS "Found CTP: ${CTP_VERSION} (${CTP_PLATFORM}-${CTP_ARCH})")
+    message(STATUS "CTP Components: ${CTP_COMPONENTS}")
+endif()

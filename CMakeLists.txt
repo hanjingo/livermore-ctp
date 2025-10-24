@@ -1,169 +1,333 @@
 cmake_minimum_required(VERSION 3.19.2)
 
-# Load Environment Info
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/env.cmake)
-load_env("${CMAKE_CURRENT_SOURCE_DIR}/.env")
+project(ctp VERSION 6.7.11 DESCRIPTION "CTP Trading API Library")
 
-# set project
-project(${PACKAGE_NAME} 
-    LANGUAGES CXX 
-    DESCRIPTION ${PACKAGE_DESCRIPTION_SUMMARY}
-)
-
-# options--code check
-option(ASAN "Enable AddressSanitizer" OFF)
-option(COVERAGE "Enable code coverage support" OFF)
-# Options--library
-option(BUILD_SHARED "Build shared object" ON)
-option(BUILD_STATIC "Build static object" OFF)
-# Options--build
-option(BUILD_TEST "Build test" OFF)
-option(BUILD_BENCHMARK "Build benchmark" OFF)
-
-# import vcpkg module
-if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
-    if(DEFINED ENV{VCPKG_ROOT})
-        set(CMAKE_TOOLCHAIN_FILE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE STRING "")
-    endif()
-endif()
-
-# utf-8 support
-if (MSVC)
-    add_compile_options(/utf-8)
-endif()
-
-# Environment require
-if (NOT DEFINED CMAKE_CXX_STANDARD)
-    set(CMAKE_CXX_STANDARD 17)
-elseif (CMAKE_CXX_STANDARD LESS 17)
-    message(FATAL_ERROR "Please specify CMAKE_CXX_STANDARD of 17+")
-endif()
-
-# set c++ version
+# Set C++ standard
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Build Type
-if (NOT CMAKE_BUILD_TYPE OR CMAKE_BUILD_TYPE STREQUAL "")
-    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Build type config" FORCE)
-endif()
-if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    add_definitions(-DDEBUG)
-endif()
+# Set output directories
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# set output path
-if (NOT LIBRARY_OUTPUT_PATH )
-    set(LIBRARY_OUTPUT_PATH  ${CMAKE_SOURCE_DIR}/bin)
-endif()
-
-# Avoid use of compiler language extensions, i.e. -std=c++11 not -std=gnu++11
-if (NOT DEFINED CMAKE_CXX_EXTENSIONS)
-    set(CMAKE_CXX_EXTENSIONS FALSE)
-endif()
-
-# set C++ base flags
-if (UNIX)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS} -g")
-elseif (WIN32)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS}")
-endif()
-
-# enable asan check
-if (ASAN)
-    if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic -Wno-volatile")
-        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -g")
-        set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} -fsanitize=address")
-    elseif (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        if (MSVC_VERSION GREATER_EQUAL 1928)
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4 /WX")
-            set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /fsanitize=address /Zi")
-            set(CMAKE_LINKER_FLAGS "${CMAKE_LINKER_FLAGS} /fsanitize=address")
-        else()
-            message(WARNING "ASAN requires Visual Studio 2019 version 16.9 (MSVC 19.28) or newer. ASAN will be disabled.")
-        endif()
+# Platform and architecture detection
+if(WIN32)
+    set(CTP_PLATFORM "winApi")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(CTP_ARCH "64")
+    else()
+        set(CTP_ARCH "32")
     endif()
+elseif(UNIX)
+    set(CTP_PLATFORM "linux")
+    set(CTP_ARCH "64")
 endif()
 
-# Macro Definitions
-add_definitions(-DPACKAGE="${PACKAGE_NAME}")
-add_definitions(-DMAJOR_VERSION=${PACKAGE_VERSION_MAJOR})
-add_definitions(-DMINOR_VERSION=${PACKAGE_VERSION_MINOR})
-add_definitions(-DPATCH_VERSION=${PACKAGE_VERSION_PATCH})
-add_definitions(-DEMAIL="${PACKAGE_CONTACT}")
+# Function to dynamically search CTP API directory
+function(find_ctp_api_directory search_root result_var)
+    set(${result_var} "" PARENT_SCOPE)
+    
+    if(NOT EXISTS "${search_root}/res")
+        return()
+    endif()
+    
+    # Search all possible version directories
+    file(GLOB version_dirs "${search_root}/res/*traderapi*")
+    
+    foreach(version_dir ${version_dirs})
+        if(NOT IS_DIRECTORY "${version_dir}")
+            continue()
+        endif()
+        
+        if(WIN32)
+            # Windows platform search
+            file(GLOB winapi_dirs "${version_dir}/*winApi*")
+            foreach(winapi_dir ${winapi_dirs})
+                if(NOT IS_DIRECTORY "${winapi_dir}")
+                    continue()
+                endif()
+                
+                file(GLOB trader_dirs "${winapi_dir}/traderapi*" "${winapi_dir}/*traderapi*")
+                foreach(trader_dir ${trader_dirs})
+                    if(NOT IS_DIRECTORY "${trader_dir}")
+                        continue()
+                    endif()
+                    
+                    # Search directories matching architecture
+                    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+                        # 64-bit: prioritize directories containing 64
+                        file(GLOB api_dirs 
+                            "${trader_dir}/*64*windows*"
+                            "${trader_dir}/*windows*64*"
+                            "${trader_dir}/*traderapi64*"
+                        )
+                    else()
+                        # 32-bit: find directories not containing 64
+                        file(GLOB all_dirs "${trader_dir}/*windows*")
+                        set(api_dirs)
+                        foreach(dir ${all_dirs})
+                            if(NOT "${dir}" MATCHES "64")
+                                list(APPEND api_dirs "${dir}")
+                            endif()
+                        endforeach()
+                    endif()
+                    
+                    # Check if found directories contain necessary header files
+                    foreach(api_dir ${api_dirs})
+                        if(IS_DIRECTORY "${api_dir}" AND 
+                           EXISTS "${api_dir}/ThostFtdcTraderApi.h" AND
+                           EXISTS "${api_dir}/ThostFtdcMdApi.h")
+                            set(${result_var} "${api_dir}" PARENT_SCOPE)
+                            return()
+                        endif()
+                    endforeach()
+                endforeach()
+            endforeach()
+            
+        elseif(UNIX)
+            # Linux platform search
+            file(GLOB linux_dirs 
+                "${version_dir}/*linux*"
+                "${version_dir}/*api*linux*"
+            )
+            
+            foreach(linux_dir ${linux_dirs})
+                if(NOT IS_DIRECTORY "${linux_dir}")
+                    continue()
+                endif()
+                
+                # Recursively search directories containing API header files
+                file(GLOB_RECURSE api_headers "${linux_dir}/ThostFtdcTraderApi.h")
+                foreach(header_path ${api_headers})
+                    get_filename_component(api_dir "${header_path}" DIRECTORY)
+                    if(EXISTS "${api_dir}/ThostFtdcMdApi.h")
+                        set(${result_var} "${api_dir}" PARENT_SCOPE)
+                        return()
+                    endif()
+                endforeach()
+            endforeach()
+        endif()
+    endforeach()
+endfunction()
 
-# windows specific settings
-if (WIN32)
-    add_definitions(
-        -DWIN32_LEAN_AND_MEAN
-        -DNOMINMAX
-        -D_WIN32_WINNT=0x0A00     # Windows 10
-        -D_WINSOCK_DEPRECATED_NO_WARNINGS
+# Search for CTP API directory
+find_ctp_api_directory("${CMAKE_CURRENT_SOURCE_DIR}" CTP_BASE_PATH)
+
+# Check if CTP API directory exists
+if(NOT CTP_BASE_PATH)
+    message(FATAL_ERROR "CTP API directory not found. Please run configure.sh or configure.ps1 to download CTP API files, or set CTP_ROOT environment variable.")
+endif()
+
+# Find CTP header files
+find_path(CTP_INCLUDE_DIR
+    NAMES ThostFtdcTraderApi.h ThostFtdcMdApi.h
+    PATHS ${CTP_BASE_PATH}
+    NO_DEFAULT_PATH
+)
+
+if(NOT CTP_INCLUDE_DIR)
+    message(FATAL_ERROR "CTP headers not found in ${CTP_BASE_PATH}")
+endif()
+
+# Find CTP library files
+if(WIN32)
+    # Windows platform: find .lib files
+    find_library(CTP_TRADER_LIB
+        NAMES thosttraderapi_se thosttraderapi
+        PATHS ${CTP_BASE_PATH}
+        NO_DEFAULT_PATH
+    )
+    
+    find_library(CTP_MD_LIB
+        NAMES thostmduserapi_se thostmduserapi
+        PATHS ${CTP_BASE_PATH}
+        NO_DEFAULT_PATH
+    )
+    
+    # Find DLL files
+    find_file(CTP_TRADER_DLL
+        NAMES thosttraderapi_se.dll thosttraderapi.dll
+        PATHS ${CTP_BASE_PATH}
+        NO_DEFAULT_PATH
+    )
+    
+    find_file(CTP_MD_DLL
+        NAMES thostmduserapi_se.dll thostmduserapi.dll
+        PATHS ${CTP_BASE_PATH}
+        NO_DEFAULT_PATH
+    )
+elseif(UNIX)
+    # Linux platform: find .so files
+    find_library(CTP_TRADER_LIB
+        NAMES thosttraderapi_se thosttraderapi
+        PATHS ${CTP_BASE_PATH}
+        NO_DEFAULT_PATH
+    )
+    
+    find_library(CTP_MD_LIB
+        NAMES thostmduserapi_se thostmduserapi
+        PATHS ${CTP_BASE_PATH}
+        NO_DEFAULT_PATH
     )
 endif()
 
-# add test
-if (BUILD_TEST)
-    add_subdirectory(test)
+# Verify found library files
+if(WIN32)
+    if(NOT CTP_TRADER_LIB OR NOT CTP_MD_LIB)
+        message(WARNING "CTP libraries not found in ${CTP_BASE_PATH}")
+        message(STATUS "Trader lib: ${CTP_TRADER_LIB}")
+        message(STATUS "MD lib: ${CTP_MD_LIB}")
+    endif()
+elseif(UNIX)
+    if(NOT CTP_TRADER_LIB OR NOT CTP_MD_LIB)
+        message(WARNING "CTP libraries not found in ${CTP_BASE_PATH}")
+        message(STATUS "Trader lib: ${CTP_TRADER_LIB}")
+        message(STATUS "MD lib: ${CTP_MD_LIB}")
+    endif()
 endif()
 
-# add benchmark
-if (BUILD_BENCHMARK)
-    add_subdirectory(bench)
+# Create CTP interface library
+add_library(ctp INTERFACE)
+
+# Set header file paths
+target_include_directories(ctp INTERFACE
+    $<BUILD_INTERFACE:${CTP_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+
+# Link libraries
+if(CTP_TRADER_LIB AND CTP_MD_LIB)
+    target_link_libraries(ctp INTERFACE ${CTP_TRADER_LIB} ${CTP_MD_LIB})
 endif()
 
-# add vcpkg library
-
-# source files
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
-include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../)
-aux_source_directory(./src SRC)
-
-# build lib file
-foreach(TYPE SHARED STATIC)
-    if(TYPE STREQUAL "SHARED" AND BUILD_SHARED)
-        set(LIB_NAME "${PROJECT_NAME}")
-    elseif(TYPE STREQUAL "STATIC" AND BUILD_STATIC)
-        set(LIB_NAME "${PROJECT_NAME}_static")
-    else()
-        continue()
+# Compile definitions
+if(WIN32)
+    target_compile_definitions(ctp INTERFACE WIN32 _WIN32)
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        target_compile_definitions(ctp INTERFACE WIN64 _WIN64)
     endif()
+endif()
 
-    add_library(${LIB_NAME} ${TYPE} ${SRC})
+# Create CTP Trader library target
+add_library(ctp_trader INTERFACE)
+target_include_directories(ctp_trader INTERFACE
+    $<BUILD_INTERFACE:${CTP_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+if(CTP_TRADER_LIB)
+    target_link_libraries(ctp_trader INTERFACE ${CTP_TRADER_LIB})
+endif()
 
-    set(LINK_LIBS ${CMAKE_DL_LIBS})
-    if(WIN32)
-        list(APPEND LINK_LIBS 
-            bcrypt
-        )
-    elseif(APPLE)
-        list(APPEND LINK_LIBS 
-            pthread
-        )
-    else()
-        list(APPEND LINK_LIBS 
-            rt 
-            pthread
-        )
+# Create CTP Market Data library target
+add_library(ctp_md INTERFACE)
+target_include_directories(ctp_md INTERFACE
+    $<BUILD_INTERFACE:${CTP_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+)
+if(CTP_MD_LIB)
+    target_link_libraries(ctp_md INTERFACE ${CTP_MD_LIB})
+endif()
+
+# Installation configuration
+include(GNUInstallDirs)
+
+# Install header files
+install(FILES
+    ${CTP_INCLUDE_DIR}/ThostFtdcTraderApi.h
+    ${CTP_INCLUDE_DIR}/ThostFtdcMdApi.h  
+    ${CTP_INCLUDE_DIR}/ThostFtdcUserApiStruct.h
+    ${CTP_INCLUDE_DIR}/ThostFtdcUserApiDataType.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/ctp
+)
+
+# Install custom header files
+if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h" PATTERN "*.hpp"
+    )
+endif()
+
+# Install library files and DLLs
+if(WIN32)
+    if(CTP_TRADER_LIB)
+        install(FILES ${CTP_TRADER_LIB} DESTINATION ${CMAKE_INSTALL_LIBDIR})
     endif()
-    target_link_libraries(${LIB_NAME} ${LINK_LIBS})
-
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy.cmake)
-    if(WIN32)
-        win_deploy(${LIB_NAME} 
-            ${LINK_LIBS}
-        )
-    elseif(APPLE)
-        mac_deploy(${LIB_NAME} 
-            ${LINK_LIBS}
-        )
-    else()
-        linux_deploy(${LIB_NAME} 
-            ${LINK_LIBS}
-        )
+    if(CTP_MD_LIB)
+        install(FILES ${CTP_MD_LIB} DESTINATION ${CMAKE_INSTALL_LIBDIR})
     endif()
-endforeach()
+    if(CTP_TRADER_DLL)
+        install(FILES ${CTP_TRADER_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+    if(CTP_MD_DLL)
+        install(FILES ${CTP_MD_DLL} DESTINATION ${CMAKE_INSTALL_BINDIR})
+    endif()
+elseif(UNIX)
+    if(CTP_TRADER_LIB)
+        install(FILES ${CTP_TRADER_LIB} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+    if(CTP_MD_LIB)
+        install(FILES ${CTP_MD_LIB} DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    endif()
+endif()
 
+# Install targets
+install(TARGETS ctp ctp_trader ctp_md
+    EXPORT ctpTargets
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+# Create and install package configuration files
+install(EXPORT ctpTargets
+    FILE ctpTargets.cmake
+    NAMESPACE ctp::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ctp
+)
+
+# Create version file
+include(CMakePackageConfigHelpers)
+write_basic_package_version_file(
+    ctpConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY AnyNewerVersion
+)
+
+# Configure package configuration file
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ctpConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/ctpConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ctp
+)
+
+# Install configuration files
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/ctpConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/ctpConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/ctp
+)
+
+# Optional: build examples and tests
+option(BUILD_EXAMPLES "Build example programs" OFF)
+if(BUILD_EXAMPLES AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/example)
+    add_subdirectory(example)
+endif()
+
+# Display configuration information
+message(STATUS "CTP Configuration:")
+message(STATUS "  Platform: ${CTP_PLATFORM}")
+message(STATUS "  Architecture: ${CTP_ARCH}")
+message(STATUS "  API Directory: ${CTP_BASE_PATH}")
+message(STATUS "  Include Directory: ${CTP_INCLUDE_DIR}")
+if(CTP_TRADER_LIB)
+    message(STATUS "  Trader Library: ${CTP_TRADER_LIB}")
+endif()
+if(CTP_MD_LIB)
+    message(STATUS "  Market Data Library: ${CTP_MD_LIB}")
+endif()
