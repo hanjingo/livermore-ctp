@@ -6,16 +6,11 @@
 *.lo
 *.o
 *.obj
+*.user
 
 # Precompiled Headers
 *.gch
 *.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
 
 # Compiled Dynamic libraries
 *.so
@@ -37,16 +32,28 @@
 *.out
 *.app
 
-# debug information files
-*.dwo
+# cmake
+build
+build-*
+bin
+bins
+lib
+libs
+install
 
 # vscode
 .vscode
 
 # vs
-.vs
 *.user
+out
 CMakeSettings.json
+.vs
+
+# vcpkg
+vcpkg
+vcpkg_installed
+tools/vcpkg
 
 # vim
 *.swo
@@ -55,17 +62,5 @@ CMakeSettings.json
 # macos
 .DS_Store
 
-# Depend
-deps/*
-!deps/CMakeLists.txt
+# 3rd
 res/*
-!res/config.ini
-!res/license.lic
-!res/instruments.txt
-!res/livermore-ctp_en_US.properties
-!res/livermore-ctp_zh_CN.properties
-
-# Directory
-build
-bin
-out
