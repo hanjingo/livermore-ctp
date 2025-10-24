@@ -14,18 +14,11 @@ project(${PACKAGE_NAME}
 option(ASAN "Enable AddressSanitizer" OFF)
 option(COVERAGE "Enable code coverage support" OFF)
 # Options--library
-option(BUILD_SHARED "Build shared object" OFF)
+option(BUILD_SHARED "Build shared object" ON)
 option(BUILD_STATIC "Build static object" OFF)
 # Options--build
 option(BUILD_TEST "Build test" OFF)
 option(BUILD_BENCHMARK "Build benchmark" OFF)
-# Options--deps
-option(BUILD_DEPS "Build deps" ON)
-
-
-# Load Environment Info
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/env.cmake)
-load_env("${CMAKE_CURRENT_SOURCE_DIR}/.env")
 
 # import vcpkg module
 if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
@@ -34,15 +27,9 @@ if(NOT DEFINED CMAKE_TOOLCHAIN_FILE)
     endif()
 endif()
 
-# add ctp library
-if (BUILD_DEPS)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ctp.cmake)
-endif()
-
 # utf-8 support
 if (MSVC)
     add_compile_options(/utf-8)
-    add_compile_options(/wd4828)
 endif()
 
 # Environment require
@@ -66,8 +53,8 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 endif()
 
 # set output path
-if (NOT EXECUTABLE_OUTPUT_PATH)
-    set(EXECUTABLE_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/bin)
+if (NOT LIBRARY_OUTPUT_PATH )
+    set(LIBRARY_OUTPUT_PATH  ${CMAKE_SOURCE_DIR}/bin)
 endif()
 
 # Avoid use of compiler language extensions, i.e. -std=c++11 not -std=gnu++11
@@ -102,14 +89,11 @@ if (ASAN)
 endif()
 
 # Macro Definitions
-add_definitions(-DI18N_LOCALE="${LANGUAGE_LOCALE}")
 add_definitions(-DPACKAGE="${PACKAGE_NAME}")
 add_definitions(-DMAJOR_VERSION=${PACKAGE_VERSION_MAJOR})
 add_definitions(-DMINOR_VERSION=${PACKAGE_VERSION_MINOR})
 add_definitions(-DPATCH_VERSION=${PACKAGE_VERSION_PATCH})
 add_definitions(-DEMAIL="${PACKAGE_CONTACT}")
-add_definitions(-DLIC_ISSUER="${LIC_ISSUER}")
-add_definitions(-DLIC_FPATH="${LIC_FPATH}")
 
 # windows specific settings
 if (WIN32)
@@ -132,130 +116,54 @@ if (BUILD_BENCHMARK)
 endif()
 
 # add vcpkg library
-find_package(ICU REQUIRED COMPONENTS uc i18n io)
-find_package(jwt-cpp CONFIG REQUIRED)
-find_package(fmt REQUIRED)
-find_package(unofficial-breakpad REQUIRED)
-find_package(Boost REQUIRED COMPONENTS 
-    system
-    filesystem
-    program_options
-)
-find_package(TBB REQUIRED)
-find_package(nlohmann_json REQUIRED)
 
 # source files
-include_directories(${CTP_INCLUDE_DIRS})
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/src)
+include_directories(${CMAKE_CURRENT_SOURCE_DIR}/../../)
 aux_source_directory(./src SRC)
 
-# build exec file
-add_executable(${PROJECT_NAME} ${SRC})
-
-# link library
-set(LINK_LIBS 
-    ${CMAKE_DL_LIBS}
-
-    # boost
-    ${Boost_LIBRARIES}
-
-    # ICU
-    ${ICU_LIBRARIES}
-
-    # CTP
-    ${CTP_LIBRARIES}
-
-    # jwt
-    jwt-cpp::jwt-cpp
-
-    # fmt
-    fmt::fmt
-
-    # breakpad_client
-    unofficial::breakpad::libbreakpad # for unofficial breakpad cmake config
-    unofficial::breakpad::libbreakpad_client # for unofficial breakpad-client cmake config
-
-    # TBB
-    TBB::tbb
-
-    # nlohmann_json
-    nlohmann_json::nlohmann_json
-)
-if(WIN32)
-    list(APPEND LINK_LIBS 
-        bcrypt
-    )
-elseif(APPLE)
-    list(APPEND LINK_LIBS 
-        pthread
-    )
-else()
-    list(APPEND LINK_LIBS 
-        rt 
-        pthread
-    )
-endif()
-target_link_libraries(${PROJECT_NAME} ${LINK_LIBS})
-
-# If CTP runtime DLLs were detected (on Windows), copy them to the target output directory
-if(WIN32)
-    if(DEFINED CTP_RUNTIME_DLLS AND NOT CTP_RUNTIME_DLLS STREQUAL "")
-        foreach(_dll IN LISTS CTP_RUNTIME_DLLS)
-            add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-                COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    "${_dll}"
-                    $<TARGET_FILE_DIR:${PROJECT_NAME}>
-            )
-        endforeach()
+# build lib file
+foreach(TYPE SHARED STATIC)
+    if(TYPE STREQUAL "SHARED" AND BUILD_SHARED)
+        set(LIB_NAME "${PROJECT_NAME}")
+    elseif(TYPE STREQUAL "STATIC" AND BUILD_STATIC)
+        set(LIB_NAME "${PROJECT_NAME}_static")
     else()
-        message(STATUS "CTP: no runtime DLLs to copy for ${PROJECT_NAME}")
+        continue()
     endif()
-endif()
 
-# copy resource files
-file(GLOB PROPERTY_FILES 
-    "${CMAKE_CURRENT_SOURCE_DIR}/res/*.properties" 
-    "${CMAKE_CURRENT_SOURCE_DIR}/res/*.lic"
-    "${CMAKE_CURRENT_SOURCE_DIR}/res/*.ini")
-add_custom_target(${PACKAGE_NAME}_copy_properties ALL
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${PROPERTY_FILES}
-        $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    DEPENDS ${PROPERTY_FILES}
-    COMMENT "Copying .properties .lic .ini files to output dir"
-)
+    add_library(${LIB_NAME} ${TYPE} ${SRC})
 
-add_dependencies(${PROJECT_NAME} ${PACKAGE_NAME}_copy_properties)
+    set(LINK_LIBS ${CMAKE_DL_LIBS})
+    if(WIN32)
+        list(APPEND LINK_LIBS 
+            bcrypt
+        )
+    elseif(APPLE)
+        list(APPEND LINK_LIBS 
+            pthread
+        )
+    else()
+        list(APPEND LINK_LIBS 
+            rt 
+            pthread
+        )
+    endif()
+    target_link_libraries(${LIB_NAME} ${LINK_LIBS})
 
-# Deploy dependencies
-# for windows + vs2019:
-# cmake .. -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" -G "Visual Studio 16 2019"
-# for *nix:
-# cmake .. -DCMAKE_TOOLCHAIN_FILE="${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"
-#
-# cmake --build .
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy.cmake)
-if(WIN32)
-    win_deploy(${PROJECT_NAME} 
-        ${LINK_LIBS}
-    )
-elseif(APPLE)
-    mac_deploy(${PROJECT_NAME} 
-        ${LINK_LIBS}
-    )
-else()
-    linux_deploy(${PROJECT_NAME} 
-        ${LINK_LIBS}
-    )
-endif()
+    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deploy.cmake)
+    if(WIN32)
+        win_deploy(${LIB_NAME} 
+            ${LINK_LIBS}
+        )
+    elseif(APPLE)
+        mac_deploy(${LIB_NAME} 
+            ${LINK_LIBS}
+        )
+    else()
+        linux_deploy(${LIB_NAME} 
+            ${LINK_LIBS}
+        )
+    endif()
+endforeach()
 
-# Package
-# for windows + NSIS:
-# cpack -G NSIS -C Debug
-#
-# for linux + DEB:
-# cpack -G DEB -C Debug
-#
-# for mac + dmg:
-# cpack -G DragNDrop -C Debug
-include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/pack.cmake)
